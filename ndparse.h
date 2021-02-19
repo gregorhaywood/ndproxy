@@ -27,13 +27,13 @@
 #ifndef __NDPARSE_H
 #define __NDPARSE_H
 
-// simple Ethernet address parser
+/* simple Ethernet address parser. */
 extern int parse_mac(char *, struct ether_addr *);
 
-// IPv6 address parser compliant to RFC-4291 and RFC-5952
+/* IPv6 address parser compliant to RFC-4291 and RFC-5952. */
 extern int parse_ipv6(char *, struct in6_addr *);
 
-// some useful functions needed to debug
+/* some useful functions needed to debug. */
 extern void printf_ip6addr(const struct in6_addr *, const bool);
 extern void printf_ip6addr_network_format(const struct in6_addr *);
 extern void printf_macaddr_network_format(const struct ether_addr *);

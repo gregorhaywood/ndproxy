@@ -27,46 +27,58 @@
 #ifndef __NDCONF_H
 #define __NDCONF_H
 
-// define DEBUG_NDPROXY to send debugging informations to the console
-// #define DEBUG_NDPROXY
+/* define DEBUG_NDPROXY to send debugging informations to the console. */
+/* #define DEBUG_NDPROXY */
 
-// max size of a MAC address: XX:XX:XX:XX:XX:XX = 17 chars
+/* Max size of a MAC address: XX:XX:XX:XX:XX:XX = 17 chars. */
 #define MACMAXSIZE 17
 
-// max size of an IPv6 address: XXXX:XXXX:XXXX:XXXX:XXXX:XXXX:YYY.YYY.YYY.YYY = 45 chars
+/* Max size of an IPv6 address: XXXX:XXXX:XXXX:XXXX:XXXX:XXXX:YYY.YYY.YYY.YYY = 45 chars. */
 #define IP6MAXSIZE 45
 
-// lower bound of exception addresses count to reserve space for
-// if more than 32 exception addresses are needed, you may have to adjust this parameter
+/*
+ * Lower bound of exception addresses count to reserve space for. 
+ * if more than 32 exception addresses are needed, you may have to
+ * adjust this parameter.
+ */
 #define CONF_NEXCEPTIONS_MAX 32
-// exceptions list: IPv6 addresses separated by ';', whole string is null terminated
+/* Exceptions list: IPv6 addresses separated by ';', whole string is null terminated. */
 #define CONF_NEXCEPTIONS_SIZE (CONF_NEXCEPTIONS_MAX * (IP6MAXSIZE + 1) + 1)
 
-// lower bound of uplink IPv6 addresses count to reserve space for
-// if more than 32 uplink IPv6 addresses are needed, you may have to adjust this parameter
+/*
+ * Lower bound of uplink IPv6 addresses count to reserve space for.
+ * if more than 32 uplink IPv6 addresses are needed, you may have to
+ * adjust this parameter.
+ */
 #define CONF_NUPLINK_MAX 32
-// exceptions list: IPv6 addresses separated by ';', whole string is null terminated
+/* Exceptions list: IPv6 addresses separated by ';', whole string is null terminated. */
 #define CONF_NUPLINK_SIZE (CONF_NUPLINK_MAX * (IP6MAXSIZE + 1) + 1)
 
-// packets handled counter
+/*
+ * Downlink MAC addrs. List must be same order as interfaces. Seperated by ';'.
+ */
+#define CONF_NMAC_MAX (CONF_NUPLINK_MAX * (MACMAXSIZE + 1) + 1)
+
+/* Packets handled counter. */
 extern int ndproxy_conf_count;
 
-// uplink interface name
-extern char ndproxy_conf_str_uplink_interface[IFNAMSIZ];
+/* Uplink interface names. List is seperated by ';'. */
+#define CONF_IFLIST_MAX (CONF_NUPLINK_MAX * (IFNAMSIZ + 1) + 1)
+extern char ndproxy_conf_str_uplink_interfaces[CONF_IFLIST_MAX];
 
-// uplink router IPv6 link-local or global address
+/* Uplink router IPv6 link-local or global address. */
 extern struct in6_addr ndproxy_conf_uplink_ipv6_addresses[CONF_NUPLINK_MAX];
 extern int ndproxy_conf_uplink_ipv6_naddresses;
 
-// IPv6 link-local or global exceptions address list
+/* IPv6 link-local or global exceptions address list. */
 extern struct in6_addr ndproxy_conf_exception_ipv6_addresses[CONF_NEXCEPTIONS_MAX];
 extern int ndproxy_conf_exception_ipv6_naddresses;
 
-// downlink router MAC address
-extern struct ether_addr ndproxy_conf_downlink_mac_address;
+/* Downlink router MAC address. */
+extern struct ether_addr ndproxy_conf_downlink_mac_addresses[CONF_NMAC_MAX];
 extern bool ndproxy_conf_downlink_mac_address_isset;
 
-// uplink router MAC address
+/* Uplink router MAC address. */
 extern struct ether_addr ndproxy_conf_uplink_mac_address;
 extern bool ndproxy_conf_uplink_mac_address_isset;
 
