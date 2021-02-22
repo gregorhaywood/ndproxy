@@ -59,18 +59,15 @@
 
 // called by pfil_run_hooks() @ ip6_input.c:ip_input()
 
-#ifdef PFIL_VERSION
 pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
     const int packet_dir, void *packet_arg, struct inpcb *packet_inpcb)
-#else
-int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet,
-    const int packet_dir, struct inpcb *packet_inpcb)
-#endif
 {
 	struct mbuf *m = NULL, *mreply = NULL;
 	struct ip6_hdr *ip6, *ip6reply;
 	struct icmp6_hdr *icmp6;
 	struct in6_addr ip6_src, srcaddr, dstaddr;
+	struct in6_addr _dst_sa;
+	uint32_t _dst_sa_scopeid;
 	int output_flags = 0;
 	int maxlen, ret, i;
 	int ifaceIndex;
@@ -104,67 +101,55 @@ int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet
 #endif
 
 	/* handle only packets originating from an uplink interface. */
-	ifaceIndex = 0;
-	i = 0;
-	int offset = 0;
-	char *ifname = if_name(packet_ifnet);
-	while (true) {
-		while (ifname[i] != '\0' && ifname[i] ==
-		    ndproxy_conf_str_uplink_interfaces[offset + i]) {
-			i++;
+	for (i = 0; i < UP_IFACE_MAX; i++) {
+		if (*up_ifaces[i] == '\0') {
+#ifdef DEBUG_NDPROXY
+			printf("NDPROXY DEBUG: packets from uplink interface: %s - %d\n",
+			    if_name(packet_ifnet), ndproxy_conf_count);
+#endif
+			return 0;
 		}
-		if (ifname[i] == '\0') {
-			/* Matched to end of string. */
+		if (strncmp(if_name(packet_ifnet), up_ifaces[i], IFNAMSIZ) == 0) {
 			break;
 		}
-		ifaceIndex++;
-		/* Find next iface. Ptr should be to */
-		while (ndproxy_conf_str_uplink_interfaces[offset + i] != ';') {
-			if (ndproxy_conf_str_uplink_interfaces[offset + i] == '\0') {
+	}
+	if (i == UP_IFACE_MAX) {
 #ifdef DEBUG_NDPROXY
-				printf("NDPROXY DEBUG: packets from uplink interface: %s - %d\n",
-				    if_name(packet_ifnet), ndproxy_conf_count);
+		printf("NDPROXY DEBUG: packets from uplink interface: %s - %d\n",
+		    if_name(packet_ifnet), ndproxy_conf_count);
 #endif
-				return 0;
-			}
-			i++;
-		}
-		offset += i;
-		i = 0;
+		return 0;
+	}
+	ifaceIndex = i;
+	if (ifaceIndex >= downlink_mac_addrs_set) {
+#ifdef DEBUG_NDPROXY
+		printf("NDPROXY DEBUG: packets from uplink interface without MAC: %s - %d\n",
+		    if_name(packet_ifnet), ndproxy_conf_count);
+#endif
+		return 0;
 	}
 
-  // Handle only packets originating from one of the uplink router addresses.
-  // Note that different source addresses can be choosen from the same uplink router, depending on the packet
-  // that triggered the address resolution process or depending on other external factors.
-  // Here are some cases when it can happen:
-  // - the uplink router may have multiple interfaces;
-  // - there may be multiple uplink routers;
-  // - many routers choose to use a link-local address when sending neighbor solicitations,
-  //   but when an administrator of such a router, also having a global address assigned on the same link,
-  //   tries to send packets (echo request, for instance) to an on-link destination global address,
-  //   the source address of the echo request packet prompting the solicitation may be global-scoped according
-  //   to the selection algorithm described in RFC-6724. Therefore, the source address of the Neighbor Solicitation
-  //   packet should also be selected in the same global scope, according to RFC-4861 (§7.2.2);
-  // - when the uplink router does not yet know its own address, it must use the unspecified address,
-  //   according to RFC-4861.
-  // So, it can not be assumed that an uplink router will always use the same IPv6 address to send
-  // neighbor solicitations. Every assigned addresses to the downlink interface of the uplink router
-  // should then be declared to ndproxy via sysctl (net.inet6.ndproxyconf_uplink_ipv6_addresses).
-  // Since the unsolicited address can be used by many different nodes, another node than the uplink router could
-  // make use of such a source IP. This is why if such a node exists, the unsolicited address should not be
-  // declared in the net.inet6.ndproxyconf_uplink_ipv6_addresses sysctl configuration parameter.
-	for (i = 0; i < ndproxy_conf_uplink_ipv6_naddresses; i++) {
+	/*
+	 * Ignore packets that aren't from an upstream router. 
+	 *
+	 * XXX: this check is not perfect. It is possible that a router
+	 * could have a link-scoped address and be connected to one
+	 * interface, while another device could use the same link-scoped
+	 * address on a different interface. For now, assume that any device
+	 * on any interface using one of the given addrs should be treated as a router.
+	 */
+	for (i = 0; i < uplink_addrs_set; i++) {
 #ifdef DEBUG_NDPROXY
 		printf("NDPROXY INFO: compare: ");
-		printf_ip6addr(ndproxy_conf_uplink_ipv6_addresses + i, false);
+		printf_ip6addr(&uplink_addrs[i], false);
 		printf(" (uplink router address) with ");
 		printf_ip6addr(&ip6_src, false);
 		printf(" (source address)\n");
 #endif
-		if (IN6_ARE_ADDR_EQUAL(ndproxy_conf_uplink_ipv6_addresses + i, &ip6_src))
+		if (IN6_ARE_ADDR_EQUAL(&uplink_addrs[i], &ip6_src))
 			break;
 	}
-	if (i == ndproxy_conf_uplink_ipv6_naddresses) {
+	if (i == uplink_addrs_set) {
 #ifdef DEBUG_NDPROXY
 		printf("NDPROXY INFO: not from uplink router - from: ");
 		printf_ip6addr(&ip6_src, false);
@@ -203,19 +188,21 @@ int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet
 		printf("NDPROXY ERROR: no more mbufs (ENOBUFS)\n");
 		return 0;
 	}
-
-	// this is a newly created packet
 	mreply->m_pkthdr.rcvif = NULL;
 
-	// packet content:
-	// IPv6 header + ICMPv6 Neighbor Advertisement including target address + target link-layer ICMPv6 address option
-	mreply->m_pkthdr.len = mreply->m_len = (sizeof(struct ip6_hdr) + sizeof(struct nd_neighbor_advert)
-					  + sizeof(struct nd_opt_hdr) + packet_ifnet->if_addrlen + 7) & ~7;
+	/* 
+	 * Packet content:
+	 * IPv6 header + ICMPv6 Neighbor Advertisement including target
+	 * address + target link-layer ICMPv6 address option
+	 */
+	mreply->m_pkthdr.len = (sizeof(struct ip6_hdr) + sizeof(struct nd_neighbor_advert) +
+	    sizeof(struct nd_opt_hdr) + packet_ifnet->if_addrlen + 7) & ~7;
+	mreply->m_len = mreply->m_pkthdr.len;
 
-	// reserve space for the link-layer header
+	/* reserve space for the link-layer header */
 	mreply->m_data += max_linkhdr;
 
-	// fill in the destination address we want to reply to
+	/* fill in the destination address we want to reply to */
 	struct sockaddr_in6 dst_sa;
 	bzero(&dst_sa, sizeof(struct sockaddr_in6));
 	dst_sa.sin6_family = AF_INET6;
@@ -227,13 +214,21 @@ int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet
 		return 0;
 	}
 
-	// According to RFC-4861 (§7.2.4), "The Target Address of the advertisement is copied from the Target Address
-	// of the solicitation. [...] If the source of the solicitation is the unspecified address, the
-	// node MUST [...] multicast the advertisement to the all-nodes address.".
-	if (!IN6_IS_ADDR_UNSPECIFIED(&ip6_src)) dstaddr = ip6->ip6_src;
+	/*
+	 * According to RFC-4861 (§7.2.4), "The Target Address of the
+	 * advertisement is copied from the Target Address of the solicitation.
+	 * [...] If the source of the solicitation is the unspecified address, the
+	 * node MUST [...] multicast the advertisement to the all-nodes address.".
+	 */
+	if (!IN6_IS_ADDR_UNSPECIFIED(&ip6_src)) {
+		dstaddr = ip6->ip6_src;
+	}
 	else {
-		// Check compliance to RFC-4861: "If the IP source address is the unspecified address, the IP
-		// destination address is a solicited-node multicast address.".
+		/*
+		 * Check compliance to RFC-4861: "If the IP source address
+		 * is the unspecified address, the IP destination address
+		 * is a solicited-node multicast address.".
+		 */
 		if (ip6->ip6_dst.s6_addr16[0] == IPV6_ADDR_INT16_MLL &&
 		    ip6->ip6_dst.s6_addr32[1] == 0 &&
 		    ip6->ip6_dst.s6_addr32[2] == IPV6_ADDR_INT32_ONE &&
@@ -256,16 +251,13 @@ int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet
 		return 0;
 	}
 
-	// first, apply the RFC-3484 default address selection algorithm to get a source address for the advertisement packet.
-#if (__FreeBSD_version < 1100000)
-	ret = in6_selectsrc(&dst_sa, NULL, NULL, NULL, NULL, NULL, &srcaddr);
-#else
-	uint32_t _dst_sa_scopeid;
-	struct in6_addr _dst_sa;
+	/*
+	 * First, apply the RFC-3484 default address selection algorithm
+	 * to get a source address for the advertisement packet.
+	 */
 	in6_splitscope(&dst_sa.sin6_addr, &_dst_sa, &_dst_sa_scopeid);
 	ret = in6_selectsrc_addr(RT_DEFAULT_FIB, &_dst_sa,
-			   _dst_sa_scopeid, packet_ifnet, &srcaddr, NULL);
-#endif
+	    _dst_sa_scopeid, packet_ifnet, &srcaddr, NULL);
 	if (ret && (ret != EHOSTUNREACH || in6_addrscope(&ip6_src) == IPV6_ADDR_SCOPE_LINKLOCAL)) {
 		printf("NDPROXY ERROR: can not select a source address to reply (err=%d), source scope is %x\n",
 		    ret, in6_addrscope(&ip6_src));
@@ -273,7 +265,10 @@ int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet
 		return 0;
 	}
 	if (ret) {
-		// secondly, try to reply with a link-local address attached to the receiving interface
+		/* 
+		 * Secondly, try to reply with a link-local address attached
+		 * to the receiving interface.
+		 */
 		struct in6_ifaddr *llifaddr = in6ifa_ifpforlinklocal(packet_ifnet, 0);
 		if (llifaddr == NULL)
 			printf("NDPROXY WARNING: no link-local address attached to the receiving interface\n");
@@ -282,18 +277,23 @@ int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet
 		printf("NDPROXY INFO: no address in requested scope, using a link-local address to reply\n");
 #endif
 		if (llifaddr != NULL) {
-			// use the link-local address
 			srcaddr = (llifaddr->ia_addr).sin6_addr;
 			ifa_free((struct ifaddr *) llifaddr);
-		} else
-			// No link-local address, we may for instance currently be verifying that the link-local stateless
-			// autoconfiguration address is unused.
-			// Then, we temporary use the unspecified address (::).
+		}
+		else {
+			/*
+			 * No link-local address, we may for instance currently
+			 * be verifying that the link-local stateless
+			 * autoconfiguration address is unused.
+			 * Then, we temporary use the unspecified address (::).
+			 */
 			bzero(&srcaddr, sizeof srcaddr);
-
-		// Since we have no source address in the same scope of the destination address of the request packet,
-		// we can not simply reply to the source address of the request packet.
-		// Then we reply to the link-local all nodes multicast address (ff02::1).
+		}
+		/*
+		 * Since we have no source address in the same scope of the destination address of the request packet,
+		 * we can not simply reply to the source address of the request packet.
+		 * Then we reply to the link-local all nodes multicast address (ff02::1).
+		 */
 		output_flags |= M_MCAST;
 		dstaddr = in6addr_linklocal_allnodes;
 		if ((ret = in6_setscope(&dstaddr, packet_ifnet, NULL))) {
@@ -310,7 +310,7 @@ int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet
 	struct nd_neighbor_solicit *nd_ns = (struct nd_neighbor_solicit *) (ip6 + 1);
 	struct in6_addr nd_ns_target = nd_ns->nd_ns_target;
 
-	// fill in the IPv6 header
+	/* Fill in the IPv6 header */
 	ip6reply = mtod(mreply, struct ip6_hdr *);
 	ip6reply->ip6_flow = 0;
 	ip6reply->ip6_vfc &= ~IPV6_VERSION_MASK;
@@ -321,7 +321,7 @@ int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet
 	ip6reply->ip6_dst = dstaddr;
 	ip6reply->ip6_src = srcaddr;
 
-	// fill in the ICMPv6 neighbor advertisement header
+	/* Fill in the ICMPv6 neighbor advertisement header */
 	struct nd_neighbor_advert *nd_na = (struct nd_neighbor_advert *) (ip6reply + 1);  
 	nd_na->nd_na_type = ND_NEIGHBOR_ADVERT;
 	nd_na->nd_na_code = 0;
@@ -349,9 +349,9 @@ int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet
 	nd_na->nd_na_target = nd_ns->nd_ns_target;
 	struct in6_addr nd_na_target = nd_na->nd_na_target;
 
-	// do not manage packets relative to exception target addresses
-	for (i = 0; i < ndproxy_conf_exception_ipv6_naddresses; i++) {
-		if (IN6_ARE_ADDR_EQUAL(ndproxy_conf_exception_ipv6_addresses + i, &nd_na_target)) {
+	/* do not manage packets relative to exception target addresses */
+	for (i = 0; i < exception_addrs_set; i++) {
+		if (IN6_ARE_ADDR_EQUAL(exception_addrs + i, &nd_na_target)) {
 #ifdef DEBUG_NDPROXY
 			printf("NDPROXY INFO: rejecting target\n");
 #endif
@@ -360,7 +360,7 @@ int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet
 		} else {
 #ifdef DEBUG_NDPROXY
 			printf("NDPROXY INFO: accepting target: ");
-			printf_ip6addr(ndproxy_conf_exception_ipv6_addresses + i, false);
+			printf_ip6addr(exception_addrs + i, false);
 			printf(" - ");
 			printf_ip6addr(&nd_na_target, false);
 			printf("\n");
@@ -377,17 +377,12 @@ int packet(void *packet_arg, struct mbuf **packet_mp, struct ifnet *packet_ifnet
 	nd_opt->nd_opt_type = ND_OPT_TARGET_LINKADDR;
 	nd_opt->nd_opt_len = optlen >> 3;
 	
-	/* TODO: change downlink
-	 *
-	 * Select the MAC address for the interface.
-	 *
-	 *
-	 */
-	bcopy(&ndproxy_conf_downlink_mac_addresses[ifaceIndex], (caddr_t) (nd_opt + 1), ETHER_ADDR_LEN);
+	/* Select the MAC address for the interface. */
+	bcopy(&downlink_mac_addrs[ifaceIndex], (caddr_t) (nd_opt + 1), ETHER_ADDR_LEN);
 
 #ifdef DEBUG_NDPROXY
 	printf("NDPROXY INFO: mac option: ");
-	printf_macaddr_network_format(&ndproxy_conf_downlink_mac_addresses[ifaceIndex]);
+	printf_macaddr_network_format(&downlink_mac_addrs[ifaceIndex]);
 	printf("\n");
 #endif
 

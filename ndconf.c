@@ -33,8 +33,32 @@
 
 #include "ndconf.h"
 
+/* Uplink interface names. */
+char up_ifaces[UP_IFACE_MAX][IFNAMSIZ];
+
+/* Uplink router addrs. */
+struct in6_addr uplink_addrs[UPLINK_MAX];
+int uplink_addrs_set = 0;
+
+/* Addrs to exclude from proxying. */
+struct in6_addr exception_addrs[EXCEPTION_MAX];
+int exception_addrs_set = 0;
+
+/*
+ * MAC addresses to supply as the downlink. Provide one MAC
+ * addr per interface to handle multihoming.
+ */
+struct ether_addr downlink_mac_addrs[UP_IFACE_MAX];
+int downlink_mac_addrs_set = 0;
+
+/* MAC addresses of uplink routers. */
+struct ether_addr uplink_mac_addrs[UPLINK_MAX];
+int up_mac_addrs_set = 0;
+
+// Old
 /* packets handled counter. */
 int ndproxy_conf_count = 0;
+#if 0
 
 /* uplink interface names. */
 char ndproxy_conf_str_uplink_interfaces[CONF_IFLIST_MAX] = "";
@@ -54,3 +78,4 @@ bool ndproxy_conf_downlink_mac_address_isset = false;
 /* uplink router MAC address. */
 struct ether_addr ndproxy_conf_uplink_mac_address;
 bool ndproxy_conf_uplink_mac_address_isset = false;
+#endif
