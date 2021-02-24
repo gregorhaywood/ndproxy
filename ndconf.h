@@ -28,7 +28,7 @@
 #define __NDCONF_H
 
 /* define DEBUG_NDPROXY to send debugging informations to the console. */
-#define DEBUG_NDPROXY
+/* #define DEBUG_NDPROXY */
 
 /*
  * Max sizes are defined in various headers:
@@ -51,6 +51,9 @@
 #define DOWN_MAC_STR_MAX	((UP_IFACE_MAX * ETHER_ADDR_STRLEN) + 1)
 #define EXCEPTION_STR_MAX	((EXCEPTION_MAX * INET6_ADDRSTRLEN) + 1)
 #define UPLINK_STR_MAX		((UPLINK_MAX * INET6_ADDRSTRLEN) + 1)
+
+/* Seperator of elements in sysctl strings. */
+#define	DELIM	' '
 
 /* Config vars. */
 extern char up_ifaces[UP_IFACE_MAX][IFNAMSIZ];

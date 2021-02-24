@@ -27,21 +27,23 @@
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/kdb.h>
+
 #include <net/if.h>
 #include <net/pfil.h>
 #include <net/if_var.h>
 #include <net/ethernet.h>
+
 #include <netinet/in.h>
 #include <netinet/in_pcb.h>
 #include <netinet/icmp6.h>
 #include <netinet/ip6.h>
+
 #include <netinet6/in6_var.h>
 #include <netinet6/ip6_var.h>
 #include <netinet6/scope6_var.h>
 
 #include "ndpacket.h"
 #include "ndconf.h"
-#include "ndparse.h"
 
 // Reply to neighbor solicitations with a specific neighbor advertisement, in order
 // to let the uplink router send packets to a downlink router, that may or may not
@@ -71,9 +73,11 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 	int output_flags = 0;
 	int maxlen, ret, i;
 	int ifaceIndex;
-
 #ifdef DEBUG_NDPROXY
-	// when debuging, increment counter of received packets from the uplink interface
+	char ip6_str[INET6_ADDRSTRLEN];
+	char ip6_str2[INET6_ADDRSTRLEN];
+	
+	/* when debuging, increment counter of received packets from the uplink interface */
 	ndproxy_conf_count = ++ndproxy_conf_count < 0 ? 1 : ndproxy_conf_count;
 #endif
 
@@ -95,9 +99,8 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 		return 0;
 	ip6_src = ip6->ip6_src;
 #ifdef DEBUG_NDPROXY
-	printf("NDPROXY DEBUG: got neighbor solicitation from ");
-	printf_ip6addr(&ip6_src, true);
-	printf("\n");
+	inet_ntop(AF_INET6, &ip6_src, ip6_str, INET6_ADDRSTRLEN);
+	printf("NDPROXY DEBUG: got neighbor solicitation from %s\n", ip6_str);
 #endif
 
 	/* handle only packets originating from an uplink interface. */
@@ -140,20 +143,17 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 	 */
 	for (i = 0; i < uplink_addrs_set; i++) {
 #ifdef DEBUG_NDPROXY
-		printf("NDPROXY INFO: compare: ");
-		printf_ip6addr(&uplink_addrs[i], false);
-		printf(" (uplink router address) with ");
-		printf_ip6addr(&ip6_src, false);
-		printf(" (source address)\n");
+		inet_ntop(AF_INET6, &uplink_addrs[i], ip6_str, INET6_ADDRSTRLEN);
+		inet_ntop(AF_INET6, &ip6_src, ip6_str2, INET6_ADDRSTRLEN);
+		printf("NDPROXY INFO: compare: %s (uplink router address) with %s (source address)\n", ip6_str, ip6_str2);
 #endif
 		if (IN6_ARE_ADDR_EQUAL(&uplink_addrs[i], &ip6_src))
 			break;
 	}
 	if (i == uplink_addrs_set) {
 #ifdef DEBUG_NDPROXY
-		printf("NDPROXY INFO: not from uplink router - from: ");
-		printf_ip6addr(&ip6_src, false);
-		printf(" - %d\n", ndproxy_conf_count);
+		inet_ntop(AF_INET6, &ip6_src, ip6_str, INET6_ADDRSTRLEN);
+		printf("NDPROXY INFO: not from uplink router - from: %s - %d\n", ip6_str, ndproxy_conf_count);
 #endif
 		return 0;
 	}
@@ -304,7 +304,8 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 	}
 
 #ifdef DEBUG_NDPROXY
-	printf("NDPROXY DEBUG: source address used to reply: "); printf_ip6addr(&srcaddr, true); printf("\n");  
+	inet_ntop(AF_INET6, &srcaddr, ip6_str, INET6_ADDRSTRLEN);
+	printf("NDPROXY DEBUG: source address used to reply: %s\n", ip6_str);
 #endif
 
 	struct nd_neighbor_solicit *nd_ns = (struct nd_neighbor_solicit *) (ip6 + 1);
@@ -359,11 +360,9 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 			return 0;
 		} else {
 #ifdef DEBUG_NDPROXY
-			printf("NDPROXY INFO: accepting target: ");
-			printf_ip6addr(exception_addrs + i, false);
-			printf(" - ");
-			printf_ip6addr(&nd_na_target, false);
-			printf("\n");
+			inet_ntop(AF_INET6, &exception_addrs[i], ip6_str, INET6_ADDRSTRLEN);
+			inet_ntop(AF_INET6, &nd_na_target, ip6_str2, INET6_ADDRSTRLEN);
+			printf("NDPROXY INFO: accepting target: %s - %s\n", ip6_str, ip6_str2);
 #endif
 		}
 	}
@@ -381,9 +380,13 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 	bcopy(&downlink_mac_addrs[ifaceIndex], (caddr_t) (nd_opt + 1), ETHER_ADDR_LEN);
 
 #ifdef DEBUG_NDPROXY
-	printf("NDPROXY INFO: mac option: ");
-	printf_macaddr_network_format(&downlink_mac_addrs[ifaceIndex]);
-	printf("\n");
+	printf("NDPROXY INFO: mac option: %02x:%02x:%02x:%02x:%02x:%02x\n",
+	    (unsigned char) downlink_mac_addrs[ifaceIndex].octet[0],
+	    (unsigned char) downlink_mac_addrs[ifaceIndex].octet[1],
+	    (unsigned char) downlink_mac_addrs[ifaceIndex].octet[2],
+	    (unsigned char) downlink_mac_addrs[ifaceIndex].octet[3],
+	    (unsigned char) downlink_mac_addrs[ifaceIndex].octet[4],
+	    (unsigned char) downlink_mac_addrs[ifaceIndex].octet[5]);
 #endif
 
 	// compute outgoing packet checksum
@@ -392,10 +395,9 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 				     mreply->m_len - sizeof(struct ip6_hdr));
 
 #ifdef DEBUG_NDPROXY
-	struct in6_addr ip6reply_ip6_src = ip6reply->ip6_src;
-	struct in6_addr ip6reply_ip6_dst = ip6reply->ip6_dst;
-	printf("NDPROXY DEBUG: src="); printf_ip6addr(&ip6reply_ip6_src, false); printf(" / ");
-	printf("dst="); printf_ip6addr(&ip6reply_ip6_dst, false); printf("\n");
+	inet_ntop(AF_INET6, &ip6reply->ip6_src, ip6_str, INET6_ADDRSTRLEN);
+	inet_ntop(AF_INET6, &ip6reply->ip6_dst, ip6_str2, INET6_ADDRSTRLEN);
+	printf("NDPROXY DEBUG: src=%s / dst=%s\n", ip6_str, ip6_str2);
 #endif
 
 	struct ip6_moptions im6o;

@@ -26,7 +26,7 @@ KMOD    =  ndproxy
 CFLAGS += -DVIMAGE
 
 # enumerate source files for kernel module
-SRCS    = ndproxy.c ndparse.c ndpacket.c ndconf.c
+SRCS    = ndproxy.c ndpacket.c ndconf.c
 MAN    += ndproxy.4
 
 CLEANFILES += ndproxy.ko.debug ndproxy.ko.full

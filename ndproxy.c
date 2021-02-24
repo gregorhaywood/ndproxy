@@ -24,17 +24,13 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/types.h>
 #include <sys/param.h>
-#include <sys/systm.h>
-#include <sys/kernel.h>
-#include <sys/malloc.h>
 #include <sys/socket.h>
 #include <sys/module.h>
 #include <sys/sysctl.h>
+
 #include <net/if.h>
 #include <net/pfil.h>
-#include <net/if_var.h>
 #include <net/ethernet.h>
 #include <netinet/in.h>
 

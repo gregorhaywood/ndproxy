@@ -28,7 +28,4 @@
 #define __NDPROXY_H
 
 
-
-#define	DELIM	' '
-
 #endif
