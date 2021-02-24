@@ -27,10 +27,8 @@
 #ifndef __NDPROXY_H
 #define __NDPROXY_H
 
-#define NDPROXY_IPV6_LIST	0
-#define NDPROXY_MAC_LIST	1
 
 
-#define	DELIM	';'
+#define	DELIM	' '
 
 #endif

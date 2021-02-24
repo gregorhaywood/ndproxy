@@ -47,12 +47,13 @@ static int digit2int(const char digit) {
 }
 
 /*
- * This Ethernet address parser only handles the hexadecimal representation made of 6 groups of 2 hexadecimal
+ * This Ethernet address parser only handles the hexadecimal
+ * representation made of 6 groups of 2 hexadecimal
  * numbers separated by colons: "XX:XX:XX:XX:XX:XX".
  * Other representations will return -1.
  */
 int parse_mac(char *str, struct ether_addr *retaddr) {
-	if (strlen(str) != MACMAXSIZE)
+	if (strlen(str) + 1 != ETHER_ADDR_STRLEN)
 		return -1;
 	for (int i = 0; i < 6; i++) {
 	if ((i < 5 && str[3 * i + 2] != ':') || !isxdigit(str[3 * i]) || !isxdigit(str[3 * i + 1])) return -1;
@@ -167,7 +168,7 @@ void printf_ip6addr_network_format(const struct in6_addr *addrp) {
 }
 
 void printf_macaddr_network_format(const struct ether_addr *addrp) {
-	char addrstr[MACMAXSIZE + 1];
+	char addrstr[ETHER_ADDR_STRLEN];
 	sprintf(addrstr, "%02X:%02X:%02X:%02X:%02X:%02X", addrp->octet[0], addrp->octet[1], addrp->octet[2], addrp->octet[3], addrp->octet[4], addrp->octet[5]);
 	printf("%s", addrstr);
 }

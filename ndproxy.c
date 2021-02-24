@@ -43,7 +43,6 @@
 
 #include "ndconf.h"
 #include "ndproxy.h"
-#include "ndparse.h"
 #include "ndpacket.h"
 
 static int hook_added = false;
@@ -122,7 +121,6 @@ static int event_handler(struct module *module, const int event, void *arg) {
 }
 
 /* declare module data */
-
 static moduledata_t ndproxy_conf = {
 	"ndproxy",     // module name
 	event_handler, // event handler
@@ -134,257 +132,144 @@ DECLARE_MODULE(ndproxy, ndproxy_conf, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
 
 SYSCTL_DECL(_net_inet6);
 
-#define GENERIC_CB_STRING                                            \
-  if (arg1 == NULL) {                                                \
-    printf("NDPROXY ERROR: conf arg is null\n");                     \
-    return EFAULT;                                                   \
-  }                                                                  \
-                                                                     \
-  if (strlen((char *) arg1) > sizeof conf_str - 1) return E2BIG;     \
-                                                                     \
-  strncpy(conf_str, (char *) arg1, sizeof conf_str);                 \
-  conf_str[(sizeof conf_str) - 1] = '\0';                            \
-                                                                     \
-  ret = SYSCTL_OUT(req, conf_str, sizeof conf_str);                  \
-  if (ret || !req->newptr) return ret;                               \
-                                                                     \
-  /* the caller asks to set a new value */			     \
-                                                                     \
-  if ((req->newlen - req->newidx) >= arg2) return EINVAL;            \
-  arg2 = (req->newlen - req->newidx);                                \
-  ret = SYSCTL_IN(req, arg1, arg2);                                  \
-  ((char *)arg1)[arg2] = '\0';                                       \
-  if (ret) return ret;
-
-////////////////////////////////////////////////////////////////////////////////
-// net.inet6.ndproxyconf_uplink_interface
-
-// declare the sysctl node named net.inet6.ndproxyconf_uplink_interface
-/* SYSCTL_STRING(_net_inet6, OID_AUTO, ndproxyconf_uplink_interface, */
-/*     CTLFLAG_RW, ndproxy_conf_str_uplink_interfaces, sizeof(ndproxy_conf_str_uplink_interfaces), */
-/*     "uplink interface name"); */
-
-////////////////////////////////////////////////////////////////////////////////
-// net.inet6.ndproxyconf_{up,down}link_mac_address
-
-// storage string for the sysctl node named net.inet6.ndproxyconf_{up,down}link_mac_address
-#if 0
-// reserved for a future use
-static char ndproxy_conf_str_uplink_mac_address[MACMAXSIZE + 1] = "";
-#endif
-/* static char ndproxy_conf_str_downlink_mac_addresses[UP_IFACE_MAX * (ETHER_ADDR_STRLEN) + 1] = ""; */
-
-/*
- * Get or update the value of the sysctl node named net.inet6.ndproxyconf_{up,down}link_mac_address
- */
-static int
-cb_mac_string_list(SYSCTL_HANDLER_ARGS, int entries, int nentries_max,
-    char *sysctl_input, struct ether_addr *mac_addresses,
-    int *count)
-{
-
-	return (0);
-#if 0
-	char conf_str[MACMAXSIZE + 1];
-	struct ether_addr _ndproxy_conf_link_mac_address;
-	int ret;
-
-	register_hook();
-
-	GENERIC_CB_STRING;
-
-	if (!strlen(xconf_str)) {
-		*xconf_isset = false;
-		return 0;
-	}
-
-	char *curp = xconf_str;
-	char tmpstr[18];
-	strcpy(tmpstr, curp);
-	ret = parse_mac(tmpstr, &_ndproxy_conf_link_mac_address);
-	if (!ret) {
-		*xconf_isset = true;
-#ifdef DEBUG_NDPROXY
-		printf("NDPROXY INFO: parsed address: [");
-		printf_macaddr_network_format(&_ndproxy_conf_link_mac_address);
-		printf("]\n");
-#endif
-	} else {
-		strncpy(xconf_str, conf_str, sizeof conf_str);
-		xconf_str[sizeof conf_str - 1] = 0;
-		return EINVAL;
-	}
-
-	*xconf_val = _ndproxy_conf_link_mac_address;
-	*xconf_isset = true;
-	return 0;
-#endif
-}
-
-#if 0
-/*
- * reserved for a future use
- * get or update the value of the sysctl node named net.inet6.ndproxyconf_uplink_mac_address
- */
-static int
-cb_string_uplink_mac_addr(SYSCTL_HANDLER_ARGS)
-{
-	return cb_string_mac_addr(oidp, arg1, arg2, req, ndproxy_conf_str_uplink_mac_address,
-	    &ndproxy_conf_uplink_mac_address, &ndproxy_conf_uplink_mac_address_isset);
-}
-#endif
-// the uplink mac address is reserved for a future use when it could be used to filter uplink packets instead of using the uplink ipv6 addresses
-// SYSCTL_OID(_net_inet6, OID_AUTO, ndproxyconf_uplink_mac_address, CTLTYPE_STRING | CTLFLAG_MPSAFE | CTLFLAG_RW, ndproxy_conf_str_uplink_mac_address, sizeof ndproxy_conf_str_uplink_mac_address, cb_string_uplink_mac_addr, "S", "uplink mac adress");
-
-////////////////////////////////////////////////////////////////////////////////
-/* net.inet6.ndproxyconf_exception_ipv6_addresses && net.inet6.ndproxyconf_uplink_ipv6_addresses */
-
-/* storage string for the sysctl node named net.inet6.ndproxyconf_exception_ipv6_addresses */
-/* static char ndproxy_conf_str_exception_ipv6_addresses[CONF_NEXCEPTIONS_SIZE] = ""; */
-
-/* Storage string for the sysctl node named net.inet6.ndproxyconf_uplink_ipv6_addresses */
-/* static char ndproxy_conf_str_uplink_ipv6_addresses[CONF_NUPLINK_SIZE] = ""; */
-
 /* 
  * Get or update the value of the sysctl node named 
- * net.inet6.ndproxyconf_{uplink,exception}_ipv6_addresses
+ * net.inet6.ndproxy.{uplink,exception}_addr_list
  */
 static int
-cb_string_list(SYSCTL_HANDLER_ARGS, int entries, int nentries_max,
-    char *sysctl_input, struct in6_addr *addresses,
-    int *count)
+addr_list(SYSCTL_HANDLER_ARGS, int str_size, int nentries_max,
+    struct in6_addr *out_addrs, int *out_count)
 {
-	char conf_str[entries];
-	struct in6_addr tmp_addresses[nentries_max];
-	int err, _count = 0;
-	char *delim, *next = sysctl_input;
+	struct in6_addr addrs[nentries_max];
+	char buf[str_size];
+	char *next, *delim;
+	int err, count = 0;
+	int change = true;
 
-	register_hook();
-
-	if (arg1 == NULL) {
-		printf("NDPROXY ERROR: conf arg is null\n");
-		return (EFAULT);
-	}
-
-	if (strlen((char *) arg1) > sizeof conf_str - 1)
-		return E2BIG;
-	strncpy(conf_str, (char *) arg1, sizeof conf_str);
-	conf_str[(sizeof conf_str) - 1] = '\0';
-
-	err = SYSCTL_OUT(req, conf_str, sizeof conf_str);
-	if (err || !req->newptr)
-		return err;
-
-	/* the caller asks to set a new value */
-	if ((req->newlen - req->newidx) >= arg2)
-		return EINVAL;
-	arg2 = (req->newlen - req->newidx);
-	err = SYSCTL_IN(req, arg1, arg2);
-	((char *)arg1)[arg2] = '\0';
-	if (err)
-		return err;
-
-
-	/* 
-	 * Parse input string. Input sting is a list of IPv6 addresses
-	 * seperated by a deliminator.
-	 */
-	while (*next != '\0') {
+	if (req->newptr != NULL)
+		strncpy(buf, (const char*) req->newptr, UP_IFACE_STR_MAX);
+	else
+		change = false;
+	next = buf;
+	while (change && *next != '\0') {
 		delim = strchr(next, DELIM);
 		if (delim != NULL)
 			*delim = '\0';
 
-		err = inet_pton(AF_INET6, next, tmp_addresses + _count);
+		err = inet_pton(AF_INET6, next, &addrs[count]);
 		if (err == 0)
 			err = EINVAL;
-
-		if (err != 1) {
-			if (delim != NULL)
-				*delim = DELIM;
-			strncpy(sysctl_input, conf_str, entries);
-			sysctl_input[entries - 1] = 0;
+		if (err != 1)
 			return (err);
-		} else {
 #ifdef DEBUG_NDPROXY
-			printf("NDPROXY INFO: parsed: [ %s ]\n", next);
+		printf("NDPROXY INFO: parsed: [ %s ]\n", next);
 #endif
-		}
-		_count++;
+		count++;
 		
 		/* Break at end of list, or max entries. */
-		if (delim == NULL || _count >= nentries_max ) {
+		if (delim == NULL || count >= nentries_max)
 			break;
-		}
-		else {
+		else
 			next = delim + 1;
-			*delim = DELIM;
-		}
 	}
 
-	/* Reached max entries. */
-	if (delim) {
-		*delim = DELIM;
-		strncpy(sysctl_input, conf_str, entries);
-		sysctl_input[entries - 1] = 0;
+	if (count >= nentries_max)
 		return EINVAL;
+	
+	if ((err = sysctl_handle_string(oidp, arg1, arg2, req)) != 0)
+		return (err);
+
+	/* Apply changes. */
+	if (change) {
+		bcopy(addrs, out_addrs, count * sizeof(struct in6_addr));
+		*out_count = count;
 	}
-
-	// TODO: remove old entries
-	bcopy(tmp_addresses, addresses, _count * sizeof(struct in6_addr));
-	*count = _count;
-
-	return 0;
+	return (err);
 }
 
-static int cb_string_list_exception(SYSCTL_HANDLER_ARGS) {
-	/* return cb_string_list(oidp, arg1, arg2, req, CONF_NEXCEPTIONS_SIZE, EXCEPTION_MAX, */
-	/*     ndproxy_conf_str_exception_ipv6_addresses, ndproxy_conf_exception_ipv6_addresses, */
-	/*     &ndproxy_conf_exception_ipv6_naddresses); */
-	return (0);
+static int
+exception_addr_list(SYSCTL_HANDLER_ARGS) {
+	return addr_list(oidp, arg1, arg2, req, EXCEPTION_STR_MAX, EXCEPTION_MAX,
+	    exception_addrs, &exception_addrs_set);
 }
 
-static int cb_string_list_uplink(SYSCTL_HANDLER_ARGS) {
-	/* return cb_string_list(oidp, arg1, arg2, req, CONF_NUPLINK_SIZE, UPLINK_MAX, */
-	/*     ndproxy_conf_str_uplink_ipv6_addresses, ndproxy_conf_uplink_ipv6_addresses, */
-	/*     &ndproxy_conf_uplink_ipv6_naddresses); */
-	return (0);
-}
-
-/*
- * Get or update the value of the sysctl node named
- * net.inet6.ndproxyconf_downlink_mac_address.
- */
-static int cb_string_list_downlink_mac_addr(SYSCTL_HANDLER_ARGS) {
-	/* return cb_string_mac_addr(oidp, arg1, arg2, req, ndproxy_conf_str_downlink_mac_addresses, */
-	/*     &ndproxy_conf_downlink_mac_addresses, &ndproxy_conf_downlink_mac_address_isset); */
-	/* return cb_mac_string_list(oidp, arg1, arg2, req, CONF_NUPLINK_SIZE, UPLINK_MAX, */
-	/*     ndproxy_conf_str_downlink_mac_addresses, ndproxy_conf_downlink_mac_addresses, */
-	/*     &i); */
-	return (0);
+static int
+uplink_addr_list(SYSCTL_HANDLER_ARGS) {
+	return addr_list(oidp, arg1, arg2, req, UPLINK_STR_MAX, UPLINK_MAX,
+	    uplink_addrs, &uplink_addrs_set);
 }
 
 static int
 downlink_mac_list(SYSCTL_HANDLER_ARGS)
 {
-	return (0);
+	struct ether_addr addrs[UP_IFACE_MAX];
+	char buf[DOWN_MAC_STR_MAX];
+	char *next, *delim;
+	int i, err, count = 0;
+	int change = true;
+	unsigned int o0, o1, o2, o3, o4, o5;
+
+	if (req->newptr != NULL)
+		strncpy(buf, (const char*) req->newptr, UP_IFACE_STR_MAX);
+	else
+		change = false;
+	next = buf;
+	while (change && *next != '\0') {
+		delim = strchr(next, DELIM);
+		if (delim != NULL)
+			*delim = '\0';
+
+		/* Parse MAC address. */
+		i = sscanf(next, "%x:%x:%x:%x:%x:%x",
+		    &o0, &o1, &o2, &o3, &o4, &o5);
+		if (i != 6)
+			return (EINVAL);
+		addrs[count].octet[0]=o0;
+		addrs[count].octet[1]=o1;
+		addrs[count].octet[2]=o2;
+		addrs[count].octet[3]=o3;
+		addrs[count].octet[4]=o4;
+		addrs[count].octet[5]=o5;
+#ifdef DEBUG_NDPROXY
+		printf("NDPROXY INFO: parsed: [ %s ]\n", next);
+#endif
+		count++;
+		if (delim == NULL || count >= UP_IFACE_MAX)
+			break;
+		else
+			next = delim + 1;
+	}
+
+	/* Reached max entries. */
+	if (count >= UP_IFACE_MAX)
+		return EINVAL;
+
+	if ((err = sysctl_handle_string(oidp, arg1, arg2, req)) != 0)
+		return (err);
+
+	/* Apply changes. */
+	if (change) {
+		bcopy(addrs, downlink_mac_addrs, count * sizeof(struct ether_addr));
+		downlink_mac_addrs_set = count;
+	}
+	return (err);
 }
 
-char sysctl_iface_list[UP_IFACE_STR_MAX];
 static int
 uplink_iface_list(SYSCTL_HANDLER_ARGS)
 {
-	int err;
-	char *next, *delim;
-	int count = 0;
 	char addrs[UP_IFACE_MAX][IFNAMSIZ];
-	int i;
+	char buf[UP_IFACE_STR_MAX];
+	char *next, *delim;
+	int err, i, count = 0;
+	int change = true;
 
-	if ((err = sysctl_handle_string(oidp, arg1, arg2, req)) != 0) {
-		return (err);
-	}
-
-	next = arg1;
-	while (*next != '\0') {
+	if (req->newptr != NULL)
+		strncpy(buf, (const char*) req->newptr, UP_IFACE_STR_MAX);
+	else
+		change = false;
+	next = buf;
+	while (change && *next != '\0') {
 		delim = strchr(next, DELIM);
 		if (delim != NULL)
 			*delim = '\0';
@@ -394,30 +279,29 @@ uplink_iface_list(SYSCTL_HANDLER_ARGS)
 		printf("NDPROXY INFO: parsed: [ %s ]\n", next);
 #endif
 		count++;
-		
-		/* Break at end of list, or max entries. */
-		if (delim == NULL || count >= UP_IFACE_MAX) {
+		if (delim == NULL || count >= UP_IFACE_MAX)
 			break;
-		}
-		else {
+		else
 			next = delim + 1;
-		}
 	}
 
 	/* Reached max entries. */
-	if (delim != NULL) {
+	if (count >= UP_IFACE_MAX)
 		return EINVAL;
-	}
 
-	/* Add new entries and remove old. */
-	for (i = 0; i < count; i++) {
-		strncpy(up_ifaces[i], addrs[i], IFNAMSIZ);
-	}
-	for (; i < UP_IFACE_MAX; i++) {
-		if (up_ifaces[i][0] == '\0') {
-			break;
+	if ((err = sysctl_handle_string(oidp, arg1, arg2, req)) != 0)
+		return (err);
+
+	/* Apply changes. */
+	if (change) {
+		for (i = 0; i < UP_IFACE_MAX; i++) {
+			if (i < count)
+				strncpy(up_ifaces[i], addrs[i], IFNAMSIZ);
+			else if (up_ifaces[i][0] == '\0')
+				break;
+			else
+				up_ifaces[i][0] = '\0';
 		}
-		up_ifaces[i][0] = '\0';
 	}
 	return (err);
 }
@@ -434,56 +318,27 @@ static int cb_count(SYSCTL_HANDLER_ARGS) {
  * Create a new sysctl node and attach config entries.
  */
 SYSCTL_NODE(_net_inet6, OID_AUTO, ndproxy, CTLFLAG_RW, 0, "NDPROXY Config Ctr");
+
+char sysctl_downlink_mac_list[DOWN_MAC_STR_MAX];
 SYSCTL_PROC(_net_inet6_ndproxy, OID_AUTO, downlink_mac_list,
-    CTLTYPE_STRING | CTLFLAG_RW, NULL, 0, downlink_mac_list, "S",
-    "Downlink MAC Addresses");
+    CTLTYPE_STRING | CTLFLAG_RW, sysctl_downlink_mac_list, sizeof(sysctl_downlink_mac_list),
+    downlink_mac_list, "S", "Downlink MAC Addresses");
+
+char sysctl_iface_list[UP_IFACE_STR_MAX];
 SYSCTL_PROC(_net_inet6_ndproxy, OID_AUTO, uplink_iface_list,
-    CTLTYPE_STRING | CTLFLAG_RW, sysctl_iface_list, sizeof(sysctl_iface_list), uplink_iface_list, "S",
-    "Interfaces with uplinks");
+    CTLTYPE_STRING | CTLFLAG_RW, sysctl_iface_list, sizeof(sysctl_iface_list),
+    uplink_iface_list, "S", "Interfaces with uplinks");
+
+char sysctl_exception_addr_list[EXCEPTION_STR_MAX];
 SYSCTL_PROC(_net_inet6_ndproxy, OID_AUTO, exception_addr_list,
-    CTLTYPE_STRING | CTLFLAG_RW, NULL, 0, cb_string_list_exception, "S",
-    "IPv6 addresses NOT to proxy");
+    CTLTYPE_STRING | CTLFLAG_RW, sysctl_exception_addr_list, sizeof(sysctl_exception_addr_list),
+    exception_addr_list, "S", "IPv6 addresses NOT to proxy");
+
+char sysctl_uplink_addr_list[EXCEPTION_STR_MAX];
 SYSCTL_PROC(_net_inet6_ndproxy, OID_AUTO, uplink_addr_list,
-    CTLTYPE_STRING | CTLFLAG_RW, NULL, 0, cb_string_list_uplink, "S",
-    "Uplink router addresses");
+    CTLTYPE_STRING | CTLFLAG_RW, sysctl_uplink_addr_list, sizeof(sysctl_uplink_addr_list),
+    uplink_addr_list, "S", "Uplink router addresses");
+
 SYSCTL_PROC(_net_inet6_ndproxy, OID_AUTO, packet_count,
     CTLTYPE_INT | CTLFLAG_RW, &ndproxy_conf_count, 0, cb_count, "I",
     "fire an event");
-
-
-/*
- * TODO:
- * Add variables to hold sysctl args
- * Reimplement handling of sysctls
- *
- */
-
-
-/*
- * declare the sysctl node named net.inet6.ndproxyconf_downlink_mac_address
- * format: NN:NN:NN:NN:NN:NN
- */
-/* SYSCTL_OID(_net_inet6, OID_AUTO, ndproxyconf_downlink_mac_address, */
-/*     CTLTYPE_STRING | CTLFLAG_MPSAFE | CTLFLAG_RW, ndproxy_conf_str_downlink_mac_addresses, */
-/*     sizeof(ndproxy_conf_str_downlink_mac_addresses), cb_string_list_downlink_mac_addr, "S", */
-/*     "downlink mac adress"); */
-
-/*
- * declare the sysctl node named net.inet6.ndproxyconf_exception_ipv6_addresses
- * format: NNNN:NNNN:NNNN:NNNN:NNNN:NNNN:{NNNN:NNNN,XXX.XXX.XXX.XXX};...;...
- */
-/* SYSCTL_OID(_net_inet6, OID_AUTO, ndproxyconf_exception_ipv6_addresses, */
-/*     CTLTYPE_STRING | CTLFLAG_MPSAFE | CTLFLAG_RW, ndproxy_conf_str_exception_ipv6_addresses, */
-/*     sizeof(ndproxy_conf_str_exception_ipv6_addresses), cb_string_list_exception, "S", */
-/*     "do not proxy this list of IPv6 adresses"); */
-
-/*
- * declare the sysctl node named net.inet6.ndproxyconf_uplink_ipv6_addresses
- * format: NNNN:NNNN:NNNN:NNNN:NNNN:NNNN:{NNNN:NNNN,XXX.XXX.XXX.XXX};...;...
- */
-/* SYSCTL_OID(_net_inet6, OID_AUTO, ndproxyconf_uplink_ipv6_addresses, */
-/*     CTLTYPE_STRING | CTLFLAG_MPSAFE | CTLFLAG_RW, ndproxy_conf_str_uplink_ipv6_addresses, */
-/*     sizeof(ndproxy_conf_str_uplink_ipv6_addresses), cb_string_list_uplink, "S", */
-/*     "uplink router IPv6 adresses"); */
-
-////////////////////////////////////////////////////////////////////////////////

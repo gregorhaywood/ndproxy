@@ -55,27 +55,5 @@ int downlink_mac_addrs_set = 0;
 struct ether_addr uplink_mac_addrs[UPLINK_MAX];
 int up_mac_addrs_set = 0;
 
-// Old
 /* packets handled counter. */
 int ndproxy_conf_count = 0;
-#if 0
-
-/* uplink interface names. */
-char ndproxy_conf_str_uplink_interfaces[CONF_IFLIST_MAX] = "";
-
-/* uplink router IPv6 link-local or global addresses. */
-struct in6_addr ndproxy_conf_uplink_ipv6_addresses[CONF_NUPLINK_MAX];
-int ndproxy_conf_uplink_ipv6_naddresses = 0;
-
-/* IPv6 link-local or global exceptions address list. */
-struct in6_addr ndproxy_conf_exception_ipv6_addresses[CONF_NEXCEPTIONS_MAX];
-int ndproxy_conf_exception_ipv6_naddresses = 0;
-
-/* downlink router MAC address. */
-struct ether_addr ndproxy_conf_downlink_mac_addresses[CONF_NMAC_MAX];
-bool ndproxy_conf_downlink_mac_address_isset = false;
-
-/* uplink router MAC address. */
-struct ether_addr ndproxy_conf_uplink_mac_address;
-bool ndproxy_conf_uplink_mac_address_isset = false;
-#endif

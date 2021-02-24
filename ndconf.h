@@ -28,13 +28,7 @@
 #define __NDCONF_H
 
 /* define DEBUG_NDPROXY to send debugging informations to the console. */
-/* #define DEBUG_NDPROXY */
-
-/* Max size of a MAC address: XX:XX:XX:XX:XX:XX = 17 chars. */
-#define MACMAXSIZE 17
-
-/* Max size of an IPv6 address: XXXX:XXXX:XXXX:XXXX:XXXX:XXXX:YYY.YYY.YYY.YYY = 45 chars. */
-#define IP6MAXSIZE 45
+#define DEBUG_NDPROXY
 
 /*
  * Max sizes are defined in various headers:
@@ -52,16 +46,13 @@
 #define UP_IFACE_MAX		32	/* Max uplink ifaces. */
 #define UPLINK_MAX		32	/* Max uplinkl rouyters. */
 
-
+/* Maximum sysctl string lengths. */
 #define UP_IFACE_STR_MAX	((UP_IFACE_MAX * IFNAMSIZ) + 1)
+#define DOWN_MAC_STR_MAX	((UP_IFACE_MAX * ETHER_ADDR_STRLEN) + 1)
+#define EXCEPTION_STR_MAX	((EXCEPTION_MAX * INET6_ADDRSTRLEN) + 1)
+#define UPLINK_STR_MAX		((UPLINK_MAX * INET6_ADDRSTRLEN) + 1)
 
-
-#define CONF_NEXCEPTIONS_SIZE	((EXCEPTION_MAX * IP6MAXSIZE) + 1)
-#define CONF_NUPLINK_SIZE	((UPLINK_MAX * IP6MAXSIZE) + 1)
-
-
-
-
+/* Config vars. */
 extern char up_ifaces[UP_IFACE_MAX][IFNAMSIZ];
 extern struct in6_addr uplink_addrs[UPLINK_MAX];
 extern int uplink_addrs_set;
@@ -71,31 +62,7 @@ extern struct ether_addr downlink_mac_addrs[UP_IFACE_MAX];
 extern int downlink_mac_addrs_set;
 extern struct ether_addr uplink_mac_addrs[UPLINK_MAX];
 
-
-
 /* Packets handled counter. */
 extern int ndproxy_conf_count;
-#if 0
-// OLD 
-
-/* Uplink interface names. List is seperated by ';'. */
-extern char ndproxy_conf_str_uplink_interfaces[UP_IFACE_MAX];
-
-/* Uplink router IPv6 link-local or global address. */
-extern struct in6_addr ndproxy_conf_uplink_ipv6_addresses[UPLINK_MAX];
-extern int ndproxy_conf_uplink_ipv6_naddresses;
-
-/* IPv6 link-local or global exceptions address list. */
-extern struct in6_addr ndproxy_conf_exception_ipv6_addresses[EXCEPTION_MAX];
-extern int ndproxy_conf_exception_ipv6_naddresses;
-
-/* Downlink router MAC address. */
-extern struct ether_addr ndproxy_conf_downlink_mac_addresses[UP_IFACE_MAX];
-extern bool ndproxy_conf_downlink_mac_address_isset;
-
-/* Uplink router MAC address. */
-extern struct ether_addr ndproxy_conf_uplink_mac_address;
-extern bool ndproxy_conf_uplink_mac_address_isset;
-#endif
 
 #endif
