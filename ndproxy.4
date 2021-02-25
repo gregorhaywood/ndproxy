@@ -25,7 +25,7 @@
 .\"
 .\" $Id: ndproxy.c 173 2015-03-30 00:10:36Z fenyo $
 .\"
-.Dd May 27, 2017
+.Dd February 25, 2021
 .Dt NDPROXY 4
 .Os
 .Sh NAME
@@ -137,7 +137,7 @@ solicitations sent by other nodes than the PE;
 solicitations sent by the PE to reach any on-link address (the address filled in the target address option) owned by nodes attached to the PE/CPE interconnect, for instance to reach the CPE, the ndproxy host or other hosts attached to this layer-2 interconnect.
 .El
 .Pp
-The target addresses filled in those solicitations that ndproxy must ignore have to be declared via sysctl (net.inet6.ndproxyconf_exception_ipv6_addresses). This list must contain the link-local and global-scoped unicast and anycast addresses of the CPE, of the ndproxy host and of any other host than the PE attached to the PE/CPE interconnect.
+The target addresses filled in those solicitations that ndproxy must ignore have to be declared via sysctl (net.inet6.ndproxy.exception_addr_list). This list must contain the link-local and global-scoped unicast and anycast addresses of the CPE, of the ndproxy host and of any other host than the PE attached to the PE/CPE interconnect.
 .Pp
 Failing to maintain this list correctly could lead to badly redirect some packets to the CPE, but with a simple network design, this list can be let empty.
 .Sh UPLINK ROUTER ADDRESSES
@@ -176,7 +176,7 @@ Failing to maintain this list correctly could lead the PE not to be able to esta
 .Sh CONFIGURATION
 .Pp
 An IPv6 address can be any valid textual representation according to RFC-4291 and RFC-5952 (this means that transitional textual representation is fully supported).
-Other representations will trigger an error event. IPv6 address lists must be formated as series of IPv6 adresses separated by semi-colons.
+Other representations will trigger an error event. IPv6 address lists must be formated as series of IPv6 adresses separated by spaces.
 .Pp
 The sysctl utility or
 .Xr rc.conf 5
@@ -198,39 +198,40 @@ ndproxy_load="YES"
 .Ed
 .Pp
 .Bl -hang -width 12n
-.It Sy net.inet6.ndproxyconf_uplink_interface sysctl entry or ndproxy_uplink_interface rc.conf variable:
+.It Sy net.inet6.ndproxy.uplink_iface_list sysctl entry or ndproxy_uplink_interface rc.conf variable:
 .Pp
-Name of the interface talking to the broadcast multi-access network connecting the PE and CPE routers.
+List of names of interfaces talking to the broadcast multi-access network connecting the PE and CPE routers, seperated by spaces.
 .Pp
 Example: "vlan2".
-.It Sy net.inet6.ndproxyconf_downlink_mac_address sysctl entry or ndproxy_downlink_mac_address rc.conf variable:
+.It Sy net.inet6.ndproxy.downlink_mac_list sysctl entry or ndproxy_downlink_mac_address rc.conf variable:
 .Pp
-MAC address of the CPE router. Neighbor advertisements sent by ndproxy will be filled with this address in the target link-layer address option. The format of this parameter is the hexadecimal representation made of 6 groups of 2 hexadecimal
+List of MAC address of the CPE routers connected to each uplink interface, seperated by spaces. Neighbor advertisements sent by ndproxy will be filled with this address in the target link-layer address option. The list must be in the same order as the uplink interface list. The format of this parameter is the hexadecimal representation made of 6 groups of 2 hexadecimal
 numbers separated by colons.
 .Pp
 Example: "00:0C:29:B6:43:D5".
-.It Sy net.inet6.ndproxyconf_exception_ipv6_addresses sysctl entry or ndproxy_exception_ipv6_addresses rc.conf variable:
+.It Sy net.inet6.ndproxy.exception_addr_list sysctl entry or ndproxy_exception_ipv6_addresses rc.conf variable:
 .Pp
 Target addresses not to proxy. In a simple network design, this list can be let empty. See section "EXCEPTION ADDRESSES".
 .Pp
-Example: "fe80::20d:edff:fe7b:68b7;fe80::222:15ff:fe3b:59a".
-.It Sy net.inet6.ndproxyconf_uplink_ipv6_addresses sysctl entry or ndproxy_uplink_ipv6_addresses rc.conf variable:
+Example: "fe80::20d:edff:fe7b:68b7 fe80::222:15ff:fe3b:59a".
+.It Sy net.inet6.ndproxy.uplink_addr_list sysctl entry or ndproxy_uplink_ipv6_addresses rc.conf variable:
 .Pp
 Addresses of the PE. This list should at least contain the PE link-local address. See section "UPLINK ROUTER ADDRESSES".
 .Pp
-Example: "fe80::207:cbff:fe4b:2d20;2a01:e35:8aae:bc60::1;::".
+Example: "fe80::207:cbff:fe4b:2d20 2a01:e35:8aae:bc60::1 ::".
 .Pp
-.It Sy net.inet6.ndproxycount sysctl entry:
+.It Sy net.inet6.ndproxy.packet_count sysctl entry:
 .Pp
 Number of advertisements sent.
 .El
 .Sh SEE ALSO
 .Xr inet6 4 ,
-.Xr rc.conf 5 ,
 .Xr loader.conf 5 ,
+.Xr rc.conf 5 ,
 .Xr sysctl.conf 5 ,
-.Xr sysctl 8 ,
 .Xr loader 8 ,
+.Xr sysctl 8 ,
 .Xr pfil 9
-.Sh AUTHOR
-Alexandre Fenyo <alex@fenyo.net> - www.fenyo.net
+.Sh AUTHORS
+.An Gregor Haywood <gh66@st-andrews.ac.uk>
+.An Alexandre Fenyo <alex@fenyo.net> - www.fenyo.net

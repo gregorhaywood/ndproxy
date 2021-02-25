@@ -15,7 +15,6 @@
 # or, if compiled with debugging symbols:
 #  make DEBUG_FLAGS=-DDEBUG_NDPROXY install
 
-# use all-man target to compress man page
 # use maninstall target to install man page
 # use manlint target to check manpage
 
@@ -45,30 +44,6 @@ pdf: ndproxy.4
 mandoc: ndproxy.4
 	mandoc -Ttree ndproxy.4
 
-manhtml: ndproxy.4
-	groff -Thtml -man ndproxy.4 > ndproxy.html
-
-catman: ndproxy.4
-	groff -Tascii -man ndproxy.4 | sed 's/.\[[012]*m//g' > MANUAL.TXT
-
-lines:
-	wc -l *.c *.h
-
-etags:
-	./etags.sh
-
-propget:
-	svn propget svn:keywords *.c *.h *.TXT Makefile
-
-# call this target after adding a new text file to the repository
-propset:
-	svn propset svn:keywords Id *.c *.h *.TXT Makefile
-
-ci:
-	svn ci -m new
-
 distinfo:
 	cd usr/ports/net/ndproxy && make makesum
 
-update:
-	svn update

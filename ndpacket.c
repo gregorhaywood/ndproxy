@@ -45,22 +45,9 @@
 #include "ndpacket.h"
 #include "ndconf.h"
 
-// Reply to neighbor solicitations with a specific neighbor advertisement, in order
-// to let the uplink router send packets to a downlink router, that may or may not
-// be the current host that run ndproxy.
-// The current host, the uplink router and the downlink router must be attached
-// to a common layer-2 link with broadcast multi-access capability.
-
-// Neighbor solicitation messages are multicast to the solicited-node multicast
-// address of the target address. Since we do not know the target address,
-// we can not join the corresponding group. So, to capture the solicitation messages,
-// the uplink interface must be set in permanent promiscuous mode and MLD snooping
-// must be disabled on the switches that share the layer-2 link relative to
-// the uplink interface. Note that MLD snooping must not be disabled entirely on
-// each switch, but only on the corresponding vlan.
-
-// called by pfil_run_hooks() @ ip6_input.c:ip_input()
-
+/*
+ * This is the pfil hook to perform proxying.
+ */
 pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
     const int packet_dir, void *packet_arg, struct inpcb *packet_inpcb)
 {
@@ -89,7 +76,7 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 
 	/*
 	 * Ignore everything except neighbour solicitations. Reject
-	 * NS with extension headers.
+	 * NS with extension headers (ie, ip6_nxt is anything but ICMPv6).
 	 */
 	ip6 = mtod(m, struct ip6_hdr *);
 	if (ip6->ip6_nxt != IPPROTO_ICMPV6)
@@ -104,10 +91,12 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 #endif
 
 	/* handle only packets originating from an uplink interface. */
+	/* TODO: switch to using a different identifier from iface name
+	 * to avoid string traversal. */
 	for (i = 0; i < UP_IFACE_MAX; i++) {
 		if (*up_ifaces[i] == '\0') {
 #ifdef DEBUG_NDPROXY
-			printf("NDPROXY DEBUG: packets from uplink interface: %s - %d\n",
+			printf("NDPROXY DEBUG: packet not from uplink interface: %s - %d\n",
 			    if_name(packet_ifnet), ndproxy_conf_count);
 #endif
 			return 0;
@@ -118,7 +107,7 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 	}
 	if (i == UP_IFACE_MAX) {
 #ifdef DEBUG_NDPROXY
-		printf("NDPROXY DEBUG: packets from uplink interface: %s - %d\n",
+		printf("NDPROXY DEBUG: packet not from uplink interface: %s - %d\n",
 		    if_name(packet_ifnet), ndproxy_conf_count);
 #endif
 		return 0;
@@ -126,7 +115,7 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 	ifaceIndex = i;
 	if (ifaceIndex >= downlink_mac_addrs_set) {
 #ifdef DEBUG_NDPROXY
-		printf("NDPROXY DEBUG: packets from uplink interface without MAC: %s - %d\n",
+		printf("NDPROXY DEBUG: packet from uplink interface without downlink MAC: %s - %d\n",
 		    if_name(packet_ifnet), ndproxy_conf_count);
 #endif
 		return 0;
@@ -140,6 +129,13 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 	 * interface, while another device could use the same link-scoped
 	 * address on a different interface. For now, assume that any device
 	 * on any interface using one of the given addrs should be treated as a router.
+	 *
+	 * The use case where this applies is when the proxy is not the downstream router.
+	 * The downstream router will perform its own NDP to which we should not reply. In
+	 * other cases, replying to NSs should be correct behavior (even if they are not the
+	 * upstream router), so this list could be implemented as an exclusion list.
+	 *
+	 * TODO: resolve this.
 	 */
 	for (i = 0; i < uplink_addrs_set; i++) {
 #ifdef DEBUG_NDPROXY
@@ -328,25 +324,29 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 	nd_na->nd_na_code = 0;
 
 	nd_na->nd_na_flags_reserved = 0;
-	// According to RFC-4861 (§7.2.4), "If the source of the solicitation is the unspecified address, the
-	// node MUST set the Solicited flag to zero [...]"
-	if (!IN6_IS_ADDR_UNSPECIFIED(&ip6_src)) nd_na->nd_na_flags_reserved = ND_NA_FLAG_SOLICITED;
+	/*
+	 * According to RFC-4861 (§7.2.4), "If the source of the solicitation is the unspecified address, the
+	 * node MUST set the Solicited flag to zero [...]"
+	 */
+	if (!IN6_IS_ADDR_UNSPECIFIED(&ip6_src))
+		nd_na->nd_na_flags_reserved = ND_NA_FLAG_SOLICITED;
 
-	// According to RFC-4861 (§7.2.4), "If the Target Address is either an anycast address or a unicast
-	// address for which the node is providing proxy service, [...] the Override flag SHOULD
-	// be set to zero."
-	// Thus, we do not set the ND_NA_FLAG_OVERRIDE flag in nd_na->nd_na_flags_reserved.
-
+	/*
+	 * According to RFC-4861 (§7.2.4), "If the Target Address is either an anycast address or a unicast
+	 * address for which the node is providing proxy service, [...] the Override flag SHOULD
+	 * be set to zero."
+	 * Thus, we do not set the ND_NA_FLAG_OVERRIDE flag in nd_na->nd_na_flags_reserved.
+	 */
 	nd_na->nd_na_flags_reserved |= ND_NA_FLAG_ROUTER;
 
-	// according to RFC-4861 (§7.2.3), the target address can not be a multicast address
+	/* according to RFC-4861 (§7.2.3), the target address can not be a multicast address */
 	if (IN6_IS_ADDR_MULTICAST(&nd_ns_target)) {
 		printf("NDPROXY WARNING: rejecting multicast target address\n");
 		m_freem(mreply);
 		return 0;
 	}
 
-	// we send a solicited neighbor advertisement relative to the target contained in the received neighbor solicitation
+	/* we send a solicited neighbor advertisement relative to the target contained in the received neighbor solicitation */
 	nd_na->nd_na_target = nd_ns->nd_ns_target;
 	struct in6_addr nd_na_target = nd_na->nd_na_target;
 
@@ -367,10 +367,10 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 		}
 	}
 
-	// proxy to the downlink router: fill in the target link-layer address option with the MAC downlink router address
+	/* proxy to the downlink router: fill in the target link-layer address option with the MAC downlink router address */
 	int optlen = sizeof(struct nd_opt_hdr) + ETHER_ADDR_LEN;
 	struct nd_opt_hdr *nd_opt = (struct nd_opt_hdr *) (nd_na + 1);
-	// roundup to 8 bytes alignment
+	/* roundup to 8 bytes alignment */
 	optlen = (optlen + 7) & ~7;
 	bzero((caddr_t) nd_opt, optlen);
 	nd_opt->nd_opt_type = ND_OPT_TARGET_LINKADDR;
@@ -389,7 +389,7 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 	    (unsigned char) downlink_mac_addrs[ifaceIndex].octet[5]);
 #endif
 
-	// compute outgoing packet checksum
+	/* compute outgoing packet checksum */
 	nd_na->nd_na_cksum = 0;
 	nd_na->nd_na_cksum = in6_cksum(mreply, IPPROTO_ICMPV6, sizeof(struct ip6_hdr),
 				     mreply->m_len - sizeof(struct ip6_hdr));
@@ -408,25 +408,22 @@ pfil_return_t packet(struct mbuf **packet_mp, struct ifnet *packet_ifnet,
 		im6o.im6o_multicast_ifp = NULL;
 	}
 
-	// send router advertisement
+	/* send router advertisement */
 	if ((ret = ip6_output(mreply, NULL, NULL, output_flags, output_flags & M_MCAST ? &im6o : NULL, NULL, NULL))) {
 		printf("NDPROXY DEBUG: can not send packet (err=%d)\n", ret);
 #ifdef DEBUG_NDPROXY
 		kdb_backtrace();
 		return 0;
 #endif
-	} else {
-#ifdef DEBUG_NDPROXY
-		printf("NDPROXY DEBUG: reply sent\n");
-#endif
 	}
-
+#ifdef DEBUG_NDPROXY
+	printf("NDPROXY DEBUG: reply sent\n");
+#endif
 #ifndef DEBUG_NDPROXY
-	// when NOT debuging, increment counter for each neighbor advertisement sent
+	/* when NOT debuging, increment counter for each neighbor advertisement sent */
 	ndproxy_conf_count = ++ndproxy_conf_count < 0 ? 1 : ndproxy_conf_count;
 #endif
-
-	// do not process this packet by upper layers to avoid sending another advertissement
+	/* Do not process this packet further. */
 	m_freem(m);
 	*packet_mp = NULL;
 	return 1;
